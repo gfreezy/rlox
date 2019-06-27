@@ -1,0 +1,16 @@
+[package]
+name = "rlox"
+version = "0.1.0"
+authors = ["gfreezy <gfreezy@gmail.com>"]
+edition = "2018"
+
+[features]
+debug-trace-execution = []
+debug-print-code = []
+default = ["debug-trace-execution", "debug-print-code"]
+
+[dependencies]
+num_enum = "0.2.0"
+byteorder = "1.3.1"
+snafu = "0.4.1"
+lazy_static = "1.3.0"
