@@ -59,8 +59,8 @@ fn run_file(path: &str) {
     let ret = vm.interpret_source(&source);
 
     match ret {
-        Err(Error::CompileError) => exit(65),
-        Err(Error::RuntimeError) => exit(70),
+        Err(Error::CompileError { .. }) => exit(65),
+        Err(Error::RuntimeError { .. }) => exit(70),
         Ok(_) => (),
         Err(_) => unreachable!(),
     }

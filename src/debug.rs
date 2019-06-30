@@ -40,7 +40,7 @@ fn constant_instruction(chunk: &Chunk, name: &str, offset: usize) -> usize {
     let constant = chunk.code[offset + 1];
     print!("{:>-16} {:4} '", name, constant);
     assert!(chunk.constants.len() > constant as usize);
-    print_value(chunk.constants[constant as usize]);
+    print_value(&chunk.constants[constant as usize]);
     println!("'");
     offset + 2
 }
@@ -50,7 +50,7 @@ fn constant_long_instruction(chunk: &Chunk, name: &str, offset: usize) -> usize 
     let constant = read_u24(&chunk.code[offset + 1..=offset + 3]);
     print!("{:>-16} {:4} '", name, constant);
     assert!(chunk.constants.len() > constant as usize);
-    print_value(chunk.constants[constant as usize]);
+    print_value(&chunk.constants[constant as usize]);
     println!("'");
     offset + 4
 }
@@ -60,6 +60,6 @@ fn simple_instruction(name: &str, offset: usize) -> usize {
     return offset + 1;
 }
 
-pub(crate) fn print_value(value: Value) {
+pub(crate) fn print_value(value: &Value) {
     print!("{}", value);
 }

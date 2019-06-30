@@ -4,7 +4,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 use line_encoding::LineEncoding;
 
-use crate::value::{Value, ValueArray};
+use crate::value::{ConstArray, Value};
 use std::fmt::Display;
 
 mod line_encoding;
@@ -13,13 +13,20 @@ mod line_encoding;
 #[repr(u8)]
 pub enum OpCode {
     OpReturn = 0,
-    OpConstant = 1,
-    OpConstantLong = 2,
-    OpNegate = 3,
-    OpAdd = 4,
-    OpSubtract = 5,
-    OpMultiply = 6,
-    OpDivide = 7,
+    OpConstant,
+    OpConstantLong,
+    OpNil,
+    OpTrue,
+    OpFalse,
+    OpNegate,
+    OpAdd,
+    OpSubtract,
+    OpMultiply,
+    OpDivide,
+    OpNot,
+    OpEqual,
+    OpGreater,
+    OpLess,
 }
 
 impl Display for OpCode {
@@ -30,7 +37,7 @@ impl Display for OpCode {
 
 pub struct Chunk {
     pub code: Vec<u8>,
-    pub constants: ValueArray,
+    pub constants: ConstArray,
     pub lines: LineEncoding,
 }
 
@@ -38,7 +45,7 @@ impl Chunk {
     pub fn new() -> Self {
         Chunk {
             code: Vec::with_capacity(100),
-            constants: ValueArray::new(),
+            constants: ConstArray::new(),
             lines: LineEncoding::new(),
         }
     }

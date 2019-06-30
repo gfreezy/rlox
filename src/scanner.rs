@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::{self, Result};
 use crate::token_type::TokenType;
 use snafu::OptionExt;
 
@@ -38,15 +38,17 @@ impl<'a> Scanner<'a> {
         };
 
         if c.is_ascii_digit() {
-            return self
-                .number()
-                .context(Error::error_token("invalid number", self.line));
+            return self.number().context(error::ScanError {
+                msg: "invalid number",
+                line: self.line,
+            });
         }
 
         if c.is_ascii_alphabetic() {
-            return self
-                .identifier()
-                .context(Error::error_token("invalid identifier", self.line));
+            return self.identifier().context(error::ScanError {
+                msg: "invalid identifier",
+                line: self.line,
+            });
         }
 
         let token = match c {
@@ -55,11 +57,13 @@ impl<'a> Scanner<'a> {
             b'{' => self.make_token(TokenType::LeftBrace),
             b'}' => self.make_token(TokenType::RightBrace),
             b';' => self.make_token(TokenType::Semicolon),
+            b':' => self.make_token(TokenType::Colon),
             b',' => self.make_token(TokenType::Comma),
             b'.' => self.make_token(TokenType::Dot),
             b'-' => self.make_token(TokenType::Minus),
             b'+' => self.make_token(TokenType::Plus),
             b'/' => self.make_token(TokenType::Slash),
+            b'?' => self.make_token(TokenType::QuestionMark),
             b'*' => self.make_token(TokenType::Star),
             b'!' => {
                 if self.match_and_advance(b'=') {
@@ -91,7 +95,13 @@ impl<'a> Scanner<'a> {
             }
             b'"' => self.string()?,
 
-            _ => return Error::error_token("unknown token", self.current).fail(),
+            _ => {
+                return error::ScanError {
+                    msg: "unknown token",
+                    line: self.current,
+                }
+                .fail()
+            }
         };
         return Ok(token);
     }
@@ -173,7 +183,11 @@ impl<'a> Scanner<'a> {
         if self.advance() == Some(b'"') {
             Ok(self.make_token(TokenType::Str))
         } else {
-            Error::error_token("Unterminated string", self.line).fail()
+            error::ScanError {
+                msg: "Unterminated string",
+                line: self.line,
+            }
+            .fail()
         }
     }
 

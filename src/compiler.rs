@@ -1,18 +1,21 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use snafu::{OptionExt, ResultExt};
 
 use lazy_static::lazy_static;
 
 use crate::chunk::Chunk;
-use crate::chunk::OpCode::{OpAdd, OpDivide, OpMultiply, OpNegate, OpReturn, OpSubtract};
+use crate::chunk::OpCode::{
+    OpAdd, OpDivide, OpEqual, OpFalse, OpGreater, OpLess, OpMultiply, OpNegate, OpNil, OpNot,
+    OpReturn, OpSubtract, OpTrue,
+};
 use crate::debug::disassemble;
 use crate::error::{self, Error, Result};
 use crate::scanner::{Scanner, Token};
 use crate::token_type::TokenType;
 use crate::value::Value;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::convert::TryInto;
 
 type ParseFn = fn(&mut Compiler) -> Result<()>;
 
@@ -25,11 +28,15 @@ struct ParseRule {
 
 impl ParseRule {
     fn prefix(&self) -> Result<ParseFn> {
-        self.prefix.clone().context(error::ParseError)
+        self.prefix.clone().context(error::ParseRuleError {
+            msg: "no prefix rule",
+        })
     }
 
     fn infix(&self) -> Result<ParseFn> {
-        self.infix.clone().context(error::ParseError)
+        self.infix.clone().context(error::ParseRuleError {
+            msg: "no infix rule",
+        })
     }
 }
 
@@ -62,31 +69,31 @@ lazy_static! {
             { TokenType::Semicolon, None,     None,    Precedence::None },
             { TokenType::Slash, None,     Some(binary),  Precedence::Factor },
             { TokenType::Star, None,     Some(binary),  Precedence::Factor },
-            { TokenType::Bang, None,     None,    Precedence::None },
-            { TokenType::BangEqual, None,     None,    Precedence::Equality },
+            { TokenType::Bang, Some(unary),     None,    Precedence::None },
+            { TokenType::BangEqual, None,     Some(binary),    Precedence::Equality },
             { TokenType::Equal, None,     None,    Precedence::None },
-            { TokenType::EqualEqual, None,     None,    Precedence::Equality },
-            { TokenType::Greater, None,     None,    Precedence::Comparison },
-            { TokenType::GreaterEqual, None,     None,    Precedence::Comparison },
-            { TokenType::Less, None,     None,    Precedence::Comparison },
-            { TokenType::LessEqual, None,     None,    Precedence::Comparison },
+            { TokenType::EqualEqual, None,     Some(binary),    Precedence::Equality },
+            { TokenType::Greater, None,     Some(binary),    Precedence::Comparison },
+            { TokenType::GreaterEqual, None,     Some(binary),    Precedence::Comparison },
+            { TokenType::Less, None,     Some(binary),    Precedence::Comparison },
+            { TokenType::LessEqual, None,     Some(binary),    Precedence::Comparison },
             { TokenType::Identifier, None,     None,    Precedence::None },
             { TokenType::Str, None,     None,    Precedence::None },
             { TokenType::Number, Some(number),   None,    Precedence::None },
             { TokenType::And, None,     None,    Precedence::And },
             { TokenType::Class, None,     None,    Precedence::None },
             { TokenType::Else, None,     None,    Precedence::None },
-            { TokenType::False, None,     None,    Precedence::None },
+            { TokenType::False, Some(literal),     None,    Precedence::None },
             { TokenType::For, None,     None,    Precedence::None },
             { TokenType::Fun, None,     None,    Precedence::None },
             { TokenType::If, None,     None,    Precedence::None },
-            { TokenType::Nil, None,     None,    Precedence::None },
+            { TokenType::Nil, Some(literal),     None,    Precedence::None },
             { TokenType::Or, None,     None,    Precedence::Or },
             { TokenType::Print, None,     None,    Precedence::None },
             { TokenType::Return, None,     None,    Precedence::None },
             { TokenType::Super, None,     None,    Precedence::None },
             { TokenType::This, None,     None,    Precedence::None },
-            { TokenType::True, None,     None,    Precedence::None },
+            { TokenType::True, Some(literal),     None,    Precedence::None },
             { TokenType::Var, None,     None,    Precedence::None },
             { TokenType::While, None,     None,    Precedence::None },
             { TokenType::Eof, None,     None,    Precedence::None },
@@ -108,25 +115,17 @@ enum TokenPosition {
 #[repr(u8)]
 enum Precedence {
     None,
-    Assignment,
-    // =
-    Or,
-    // or
-    And,
-    // and
-    Equality,
-    // == !=
-    Comparison,
-    // < > <= >=
-    Term,
-    // + -
-    Factor,
-    // * /
-    Unary,
-    // ! -
-    Call,
-    // . () []
-    Primary,
+    Assignment, // =
+    Or,         // or
+    And,        // and
+    Equality,   // == !=
+    Comparison, // < > <= >=
+    Term,       // + -
+    Factor,     // * /
+    Unary,      // ! -
+    Call,       // . () []
+    Primary,    //
+    Ternary,    // ? :
 }
 
 struct Parser<'a> {
@@ -197,7 +196,7 @@ impl<'a> Parser<'a> {
                     self.current = Some(t);
                     return Ok(());
                 }
-                Err(Error::ErrorToken { msg, .. }) => {
+                Err(Error::ScanError { msg, .. }) => {
                     self.error_at_current(&msg)?;
                 }
                 Err(e) => {
@@ -208,11 +207,15 @@ impl<'a> Parser<'a> {
     }
 
     fn previous(&self) -> Result<&Token> {
-        self.previous.as_ref().context(error::ParseError)
+        self.previous.as_ref().context(error::ParseError {
+            msg: "no previous token",
+        })
     }
 
     fn current(&self) -> Result<&Token> {
-        self.current.as_ref().context(error::ParseError)
+        self.current.as_ref().context(error::ParseError {
+            msg: "no current token",
+        })
     }
 
     fn line(&self) -> usize {
@@ -296,9 +299,15 @@ fn expression(compiler: &mut Compiler) -> Result<()> {
 }
 
 fn number(compiler: &mut Compiler) -> Result<()> {
-    let value: Value = String::from_utf8_lossy(&compiler.parser.previous()?.lexeme)
-        .parse()
-        .context(error::ParseFloatError)?;
+    let previous = compiler.parser.previous()?;
+    let lexeme = String::from_utf8_lossy(&previous.lexeme);
+    let value: Value = lexeme
+        .parse::<f64>()
+        .context(error::ParseFloatError {
+            msg: format!("parse to number: {}", lexeme),
+            line: previous.line,
+        })?
+        .into();
     compiler.emit_constant(value)
 }
 
@@ -312,10 +321,12 @@ fn grouping(compiler: &mut Compiler) -> Result<()> {
 fn unary(compiler: &mut Compiler) -> Result<()> {
     let operator_type = compiler.parser.previous()?.ty;
     compiler.parse_precedence(Precedence::Unary)?;
-    match operator_type {
-        TokenType::Minus => compiler.emit_byte(OpNegate as u8),
+    let code = match operator_type {
+        TokenType::Minus => OpNegate,
+        TokenType::Bang => OpNot,
         _ => unreachable!(),
-    }
+    } as u8;
+    compiler.emit_byte(code)
 }
 
 fn binary(compiler: &mut Compiler) -> Result<()> {
@@ -327,12 +338,28 @@ fn binary(compiler: &mut Compiler) -> Result<()> {
             .expect("invalid precedence"),
     )?;
 
-    let code = match operator_type {
-        TokenType::Plus => OpAdd,
-        TokenType::Minus => OpSubtract,
-        TokenType::Star => OpMultiply,
-        TokenType::Slash => OpDivide,
+    match operator_type {
+        TokenType::Plus => compiler.emit_byte(OpAdd as u8),
+        TokenType::Minus => compiler.emit_byte(OpSubtract as u8),
+        TokenType::Star => compiler.emit_byte(OpMultiply as u8),
+        TokenType::Slash => compiler.emit_byte(OpDivide as u8),
+        TokenType::BangEqual => compiler.emit_bytes(OpEqual as u8, OpNot as u8),
+        TokenType::EqualEqual => compiler.emit_byte(OpEqual as u8),
+        TokenType::Greater => compiler.emit_byte(OpGreater as u8),
+        TokenType::GreaterEqual => compiler.emit_bytes(OpLess as u8, OpNot as u8),
+        TokenType::Less => compiler.emit_byte(OpLess as u8),
+        TokenType::LessEqual => compiler.emit_bytes(OpGreater as u8, OpNot as u8),
         _ => unreachable!(),
-    };
-    compiler.emit_byte(code as u8)
+    }
+}
+
+fn literal(compiler: &mut Compiler) -> Result<()> {
+    let operator_type = compiler.parser.previous()?.ty;
+    let code = match operator_type {
+        TokenType::False => OpFalse,
+        TokenType::True => OpTrue,
+        TokenType::Nil => OpNil,
+        _ => unreachable!(),
+    } as u8;
+    compiler.emit_byte(code)
 }
