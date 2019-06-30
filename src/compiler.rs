@@ -78,7 +78,7 @@ lazy_static! {
             { TokenType::Less, None,     Some(binary),    Precedence::Comparison },
             { TokenType::LessEqual, None,     Some(binary),    Precedence::Comparison },
             { TokenType::Identifier, None,     None,    Precedence::None },
-            { TokenType::Str, None,     None,    Precedence::None },
+            { TokenType::Str, Some(string),     None,    Precedence::None },
             { TokenType::Number, Some(number),   None,    Precedence::None },
             { TokenType::And, None,     None,    Precedence::And },
             { TokenType::Class, None,     None,    Precedence::None },
@@ -362,4 +362,11 @@ fn literal(compiler: &mut Compiler) -> Result<()> {
         _ => unreachable!(),
     } as u8;
     compiler.emit_byte(code)
+}
+
+fn string(compiler: &mut Compiler) -> Result<()> {
+    let s = String::from_utf8_lossy(&compiler.parser.previous()?.lexeme)
+        .trim_matches('"')
+        .to_string();
+    compiler.emit_constant(s.into())
 }

@@ -177,6 +177,8 @@ impl<'a> Scanner<'a> {
                     self.line += 1;
                 }
                 self.advance();
+            } else {
+                break;
             }
         }
 

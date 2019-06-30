@@ -3,7 +3,7 @@ use crate::compiler::Compiler;
 use crate::debug::{disassemble_instruction, print_value};
 use crate::error::{self, Result};
 use crate::value::Value;
-use snafu::ResultExt;
+use snafu::{OptionExt, ResultExt};
 use std::convert::TryInto;
 
 const STACK_MAX: usize = 100;
@@ -65,32 +65,37 @@ impl VM {
         self.stack.push(value)
     }
 
-    pub fn pop(&mut self) -> Option<Value> {
-        self.stack.pop()
+    pub fn pop(&mut self) -> Result<Value> {
+        self.stack
+            .pop()
+            .context(error::NoOpCodeError { msg: "pop error" })
+    }
+
+    pub fn peek(&self, index: usize) -> Result<&Value> {
+        self.stack
+            .get(self.stack.len() - index - 1)
+            .context(error::NoOpCodeError {
+                msg: format!("peek {}", index),
+            })
     }
 
     fn run(&mut self) -> Result<()> {
         macro_rules! binary_op {
-            ($op:tt, $ty:tt, $err_msg:expr) => {
-                let left = self.pop().expect("get left operand")
-                    .$ty()
-                    .context(error::TypeError {
-                        msg: $err_msg,
-                        line: self.chunk.lines.get(self.ip) as usize
-                     })?;
-                let right = self.pop()
-                    .expect("get left operand")
-                    .$ty()
-                    .context(error::TypeError {
-                        msg: $err_msg,
-                        line: self.chunk.lines.get(self.ip) as usize
-                     })?;;
-                self.push((right $op left).into());
+            ($op:expr, $ty:tt, $err_msg:expr) => {
+                let left = self.pop()?.$ty().context(error::TypeError {
+                    msg: $err_msg,
+                    line: self.chunk.lines.get(self.ip) as usize,
+                })?;
+                let right = self.pop()?.$ty().context(error::TypeError {
+                    msg: $err_msg,
+                    line: self.chunk.lines.get(self.ip) as usize,
+                })?;;
+                self.push($op(right, left).into());
             };
-            ($op:tt) => {
-                let left = self.pop().expect("get left operand");
-                let right = self.pop().expect("get left operand");
-                self.push((right $op left).into());
+            ($op:expr) => {
+                let left = self.pop()?;
+                let right = self.pop()?;
+                self.push($op(right, left).into());
             };
         }
 
@@ -109,7 +114,7 @@ impl VM {
             let instruction: OpCode = self.read_byte().try_into().expect("read byte");
             match instruction {
                 OpCode::OpReturn => {
-                    print_value(&self.pop().expect("empyt stack"));
+                    print_value(&self.pop()?);
                     println!();
                     return Ok(());
                 }
@@ -122,9 +127,9 @@ impl VM {
                     self.push(constant);
                 }
                 OpCode::OpNegate => {
-                    let constant = self.pop().expect("get number");
+                    let constant = self.pop()?;
                     self.push(
-                        (-constant.number_value().context(error::TypeError {
+                        (-constant.to_number().context(error::TypeError {
                             msg: "no number value",
                             line: self.chunk.lines.get(self.ip) as usize,
                         })?)
@@ -132,16 +137,20 @@ impl VM {
                     );
                 }
                 OpCode::OpAdd => {
-                    binary_op!(+, number_value, "not a number");
+                    if self.peek(0)?.is_str() && self.peek(1)?.is_str() {
+                        binary_op!(|l, r| format!("{}{}", l, r), into_str, "not a str");
+                    } else {
+                        binary_op!(|l, r| l + r, into_number, "not a str");
+                    }
                 }
                 OpCode::OpSubtract => {
-                    binary_op!(-, number_value, "not a number");
+                    binary_op!(|l, r| l - r, into_number, "not a number");
                 }
                 OpCode::OpMultiply => {
-                    binary_op!(*, number_value, "not a number");
+                    binary_op!(|l, r| l * r, into_number, "not a number");
                 }
                 OpCode::OpDivide => {
-                    binary_op!(/, number_value, "not a number");
+                    binary_op!(|l, r| l / r, into_number, "not a number");
                 }
                 OpCode::OpNil => {
                     self.push(Value::Nil);
@@ -151,17 +160,17 @@ impl VM {
                 }
                 OpCode::OpTrue => self.push(true.into()),
                 OpCode::OpNot => {
-                    let v = self.pop().expect("empty stack").is_falsey().into();
+                    let v = self.pop()?.is_falsey().into();
                     self.push(v)
                 }
                 OpCode::OpEqual => {
-                    binary_op!(==);
+                    binary_op!(|l, r| l == r);
                 }
                 OpCode::OpGreater => {
-                    binary_op!(>, number_value, "not a number");
+                    binary_op!(|l, r| l > r, into_number, "not a number");
                 }
                 OpCode::OpLess => {
-                    binary_op!(<, number_value, "not a number");
+                    binary_op!(|l, r| l < r, into_number, "not a number");
                 }
             }
         }

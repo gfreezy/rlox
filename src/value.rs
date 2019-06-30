@@ -1,3 +1,4 @@
+use paste;
 use std::fmt;
 use std::ops::Deref;
 use std::result::Result;
@@ -15,46 +16,71 @@ impl fmt::Display for ValueTypeError {
 
 impl std::error::Error for ValueTypeError {}
 
+macro_rules! impl_enum_variant {
+    ($name:tt, $enum_ty:tt, $variant:tt, $ty:ty) => {
+        impl $enum_ty {
+            paste::item! {
+                #[allow(dead_code)]
+                pub(crate) fn [<to_ $name>](&self) -> Result<$ty, ValueTypeError> {
+                    match self {
+                        $enum_ty::$variant(v) => Ok(v.clone()),
+                        _ => Err(ValueTypeError {
+                            msg: format!("Operand must be a {}", stringify!($ty)),
+                        }),
+                    }
+                }
+
+                #[allow(dead_code)]
+                pub(crate) fn [<into_ $name>](self) -> Result<$ty, ValueTypeError> {
+                    match self {
+                        $enum_ty::$variant(v) => Ok(v),
+                        _ => Err(ValueTypeError {
+                            msg: format!("Operand must be a {}", stringify!($ty)),
+                        }),
+                    }
+                }
+
+                #[allow(dead_code)]
+                pub(crate) fn [<as_ $name>](&self) -> Result<&$ty, ValueTypeError> {
+                    match self {
+                        $enum_ty::$variant(v) => Ok(v),
+                        _ => Err(ValueTypeError {
+                            msg: format!("Operand must be a {}", stringify!($ty)),
+                        }),
+                    }
+                }
+
+                #[allow(dead_code)]
+                pub(crate) fn [<is_ $name>](&self) -> bool {
+                    match self {
+                        $enum_ty::$variant(_) => true,
+                        _ => false,
+                    }
+                }
+            }
+        }
+
+        impl From<$ty> for $enum_ty {
+            fn from(v: $ty) -> Self {
+                $enum_ty::$variant(v)
+            }
+        }
+    };
+}
+
 #[derive(PartialEq, Debug, Clone)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
+    Str(String),
 }
 
+impl_enum_variant!(bool, Value, Bool, bool);
+impl_enum_variant!(number, Value, Number, f64);
+impl_enum_variant!(str, Value, Str, String);
+
 impl Value {
-    pub(crate) fn bool_value(&self) -> Result<bool, ValueTypeError> {
-        match self {
-            Value::Bool(v) => Ok(*v),
-            _ => Err(ValueTypeError {
-                msg: "Operand must be a bool".to_string(),
-            }),
-        }
-    }
-
-    pub(crate) fn is_bool(&self) -> bool {
-        match self {
-            Value::Bool(_) => true,
-            _ => false,
-        }
-    }
-
-    pub(crate) fn number_value(&self) -> Result<f64, ValueTypeError> {
-        match self {
-            Value::Number(v) => Ok(*v),
-            _ => Err(ValueTypeError {
-                msg: "Operand must be a number".to_string(),
-            }),
-        }
-    }
-
-    pub(crate) fn is_number(&self) -> bool {
-        match self {
-            Value::Number(_) => true,
-            _ => false,
-        }
-    }
-
     pub(crate) fn is_nil(&self) -> bool {
         match self {
             Value::Nil => true,
@@ -63,19 +89,7 @@ impl Value {
     }
 
     pub(crate) fn is_falsey(&self) -> bool {
-        self.is_nil() || (self.is_bool() && !self.bool_value().expect("not bool"))
-    }
-}
-
-impl From<bool> for Value {
-    fn from(v: bool) -> Self {
-        Value::Bool(v)
-    }
-}
-
-impl From<f64> for Value {
-    fn from(v: f64) -> Self {
-        Value::Number(v)
+        self.is_nil() || (self.is_bool() && !self.to_bool().expect("not bool"))
     }
 }
 
@@ -85,9 +99,11 @@ impl fmt::Display for Value {
             Value::Number(v) => write!(f, "{}", v),
             Value::Bool(v) => write!(f, "{}", v),
             Value::Nil => write!(f, "nil"),
+            Value::Str(s) => write!(f, "{}", s),
         }
     }
 }
+
 pub struct ConstArray(Vec<Value>);
 
 impl ConstArray {

@@ -16,6 +16,9 @@ pub enum Error {
     RuntimeError {
         msg: String,
     },
+    NoOpCodeError {
+        msg: String,
+    },
     TypeError {
         msg: String,
         line: usize,
